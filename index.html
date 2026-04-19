@@ -213,8 +213,12 @@
         }
 
         window.showView = (id) => {
-            ['view-admin', 'view-upload', 'view-gallery'].forEach(v => document.getElementById(v).classList.add('hidden'));
-            document.getElementById(id).classList.remove('hidden');
+            ['view-admin', 'view-upload', 'view-gallery'].forEach(v => {
+                const el = document.getElementById(v);
+                if(el) el.classList.add('hidden');
+            });
+            const target = document.getElementById(id);
+            if(target) target.classList.remove('hidden');
             
             if (!currentEventId && id !== 'view-admin') {
                 if (id === 'view-upload') {
@@ -260,21 +264,40 @@
                 });
                 currentEventId = d.id;
                 
-                // QR Kod İçin URL oluştur (Hosting durumunda origin kullanılır)
-                const isBlob = window.location.protocol === 'blob:';
-                let baseUrl = isBlob ? "https://memori.github.io" : window.location.origin + window.location.pathname;
-                const url = baseUrl + "?event=" + currentEventId;
+                // GitHub Pages ve Iframe/Blob URL'leri için güvenli URL yapısı
+                const currentFullUrl = window.location.href.split('?')[0].split('#')[0];
+                const finalUrl = currentFullUrl + "?event=" + currentEventId;
                 
                 document.getElementById('qr-event-title').innerText = name;
                 document.getElementById('qr-container').innerHTML = "";
-                new QRCode(document.getElementById("qr-container"), { text: url, width: 256, height: 256, colorDark: "#4f46e5", correctLevel: 3 });
+                
+                // QRCode kütüphanesini tetikleme
+                try {
+                    new QRCode(document.getElementById("qr-container"), { 
+                        text: finalUrl, 
+                        width: 256, 
+                        height: 256, 
+                        colorDark: "#4f46e5", 
+                        correctLevel: QRCode.CorrectLevel.H 
+                    });
+                } catch (qrErr) {
+                    console.error("QR Hatası:", qrErr);
+                    // Fallback: QRCode bazen kütüphane henüz hazır değilse hata verebilir
+                    setTimeout(() => {
+                        new QRCode(document.getElementById("qr-container"), { text: finalUrl, width: 256, height: 256, colorDark: "#4f46e5", correctLevel: QRCode.CorrectLevel.H });
+                    }, 500);
+                }
                 
                 document.getElementById('admin-inputs').classList.add('hidden');
                 document.getElementById('qr-result-card').classList.remove('hidden');
                 
-                // Güvenlik hatasını önlemek için pushState yerine doğrudan iç navigasyon kullanıyoruz
                 document.getElementById('view-gallery-btn').onclick = () => {
-                    // Blob URL'lerde history.pushState güvenlik hatası verdiği için sadece yükleme başlatıyoruz
+                    // Blob ortamlarında (Canvas) pushState çalışmadığı için sadece durumu güncelliyoruz
+                    if (window.location.protocol !== 'blob:') {
+                        try {
+                            window.history.pushState({}, '', "?event=" + currentEventId);
+                        } catch (e) { console.warn("Navigasyon kısıtlaması."); }
+                    }
                     loadEvent(); 
                 };
             } catch (e) { 
@@ -323,14 +346,12 @@
             const g = document.getElementById('gallery-grid');
             const e = document.getElementById('empty-state');
             
-            // RULE 2: orderBy() kullanmıyoruz, JS içinde sıralıyoruz.
             unsub = onSnapshot(collection(db, getPhPath(currentEventId)), (snap) => {
                 g.innerHTML = "";
                 if (snap.empty) {
                     e.classList.remove('hidden');
                 } else {
                     e.classList.add('hidden');
-                    // JS tarafında tarihe göre sıralama
                     const docs = snap.docs.map(d => d.data()).sort((a, b) => {
                         const dateA = a.createdAt?.seconds || 0;
                         const dateB = b.createdAt?.seconds || 0;
